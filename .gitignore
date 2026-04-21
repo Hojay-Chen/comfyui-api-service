@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+env/
+.venv/
+# Logs
+logs/
+*.log
+# Config (keep example, ignore real)
+config.json

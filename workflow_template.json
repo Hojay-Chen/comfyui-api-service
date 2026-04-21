@@ -1,0 +1,21 @@
+{
+  "_meta": {
+    "title": "示例工作流",
+    "description": "请在实际项目中替换为你的 ComfyUI workflow JSON"
+  },
+  "nodes": [
+    {
+      "id": "PromptNode",
+      "type": "Prompt",
+      "inputs": {},
+      "outputs": {"prompt": ""}
+    },
+    {
+      "id": "VideoSettings",
+      "type": "VideoSettings",
+      "inputs": {},
+      "outputs": {"duration": 5, "fps": 24}
+    }
+  ],
+  "connections": []
+}
