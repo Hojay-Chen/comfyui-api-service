@@ -30,15 +30,27 @@ with open(CONFIG_PATH, "r", encoding="utf-8") as f:
     cfg = json.load(f)
 COMFYUI_URL = cfg.get("comfyui_url", "http://127.0.0.1:8188")
 WORKFLOW_DIR = Path(cfg.get("workflow_dir", "./"))
+# Path to the real user‑provided ComfyUI workflows (outside this repo)
+WORKFLOW_SOURCE_DIR = Path(cfg.get("workflow_source_dir", ""))
+if not WORKFLOW_SOURCE_DIR.is_dir():
+    raise FileNotFoundError(f"Workflow source directory not found: {WORKFLOW_SOURCE_DIR}")
 
 # ---------- 工具函数 ----------
 def load_workflow(fname: str) -> Dict[str, Any]:
-    """读取 workflow JSON（只读）"""
-    wf_path = WORKFLOW_DIR / fname
-    if not wf_path.is_file():
-        raise FileNotFoundError(f"Workflow file not found: {wf_path}")
-    with open(wf_path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    """读取 workflow JSON（只读）
+    先在本项目的 workflow_dir 查找，如未找到则在外部 workflow_source_dir 中查找"""
+    # 1) 本地模板目录
+    local_path = WORKFLOW_DIR / fname
+    if local_path.is_file():
+        with open(local_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    # 2) 外部真实工作流目录
+    external_path = WORKFLOW_SOURCE_DIR / fname
+    if external_path.is_file():
+        with open(external_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    # 都没有则报错
+    raise FileNotFoundError(f"Workflow file not found in either {WORKFLOW_DIR} or {WORKFLOW_SOURCE_DIR}: {fname}")
 
 def apply_modifications(workflow: Dict[str, Any], mods: List[Dict[str, Any]]) -> Dict[str, Any]:
     """在内存中根据 mods 修改 workflow
@@ -95,6 +107,32 @@ def run_workflow():
         return jsonify({"error": str(fe)}), 404
     except Exception as ex:
         return jsonify({"error": str(ex)}), 500
+
+# ---------- 为每个工作流生成专属路由 ----------
+def _slugify(name: str) -> str:
+    # 简单将空格替换为下划线，去掉 .json 后缀
+    return name.replace(' ', '_').replace('.json', '')
+
+# 动态注册所有在 WORKFLOW_SOURCE_DIR 下的 .json 工作流
+for wf_path in WORKFLOW_SOURCE_DIR.glob('*.json'):
+    fname = wf_path.name
+    route = f"/run/{_slugify(fname)}"
+    def make_endpoint(file_name):
+        def endpoint():
+            data = request.get_json(force=True) or {}
+            modifications = data.get('modifications', [])
+            try:
+                wf = load_workflow(file_name)
+                wf_mod = apply_modifications(wf, modifications)
+                res = submit_to_comfyui(wf_mod)
+                return jsonify(res)
+            except FileNotFoundError as fe:
+                return jsonify({'error': str(fe)}), 404
+            except Exception as e:
+                return jsonify({'error': str(e)}), 500
+        endpoint.__name__ = f"run_{_slugify(file_name)}"
+        return endpoint
+    app.add_url_rule(route, view_func=make_endpoint(fname), methods=['POST'])
 
 # ---------- 主入口 ----------
 if __name__ == "__main__":
