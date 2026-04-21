@@ -1,56 +1,69 @@
 # ComfyUI API Wrapper Service
 
 ## 项目简介
-本项目提供一个轻量级的 **Python Flask**（或 FastAPI） HTTP API，帮助上层视频助手直接调用 **ComfyUI** 工作流，而不需要手动编辑完整的 workflow JSON。 
-
-- 读取预定义的 workflow JSON（只读 ComfyUI 资源）
-- 接收请求体中的 **input 参数**（prompt、duration、fps 等）
-- 在内存中根据节点名称/ID 动态修改对应节点属性
-- 将完整的 workflow JSON 通过 ComfyUI 原始 API (`/prompt`) 发送，触发生成
+本项目提供一个 **Flask** HTTP 服务，针对每个 ComfyUI 工作流提供独立的 RESTful API。每个 API 都硬编码了对应工作流的关键节点 ID，避免使用统一的 `modifications` 方案，从而确保不同工作流的输入字段能准确映射到正确的节点。
 
 ## 目录结构
 ```
 comfyui_api_service/
-├─ app.py                # 主服务入口（Flask）
-├─ config.json           # ComfyUI 主机 & 端口配置
-├─ workflow_template.json# 示例工作流模板（只读）
-├─ requirements.txt      # 依赖列表
-├─ .gitignore            # 过滤日志、临时文件
-└─ README.md
+├─ src/
+│   └─ app.py            # 主服务入口，包含所有独立的 API 处理函数
+├─ config.json           # ComfyUI 地址、工作流目录、服务端口等配置
+├─ docs/
+│   └─ api_endpoints.md  # API 接口文档（说明请求字段、示例）
+├─ requirements.txt      # Python 依赖
+├─ .gitignore            # 忽略日志、临时文件等
+└─ README.md            # 本说明文件
 ```
 
-## 使用方式
+## 快速开始
 ```bash
-# 创建虚拟环境并安装依赖
+# 1. 克隆仓库
+git clone https://github.com/Hojay-Chen/comfyui-api-service.git
+cd comfyui-api-service
+
+# 2. 创建虚拟环境并安装依赖
 python -m venv .venv
-.\.venv\Scripts\activate
+./.venv/Scripts/activate  # Windows
+# 或 source .venv/bin/activate 在类 Unix 系统上
 pip install -r requirements.txt
 
-# 运行服务（默认 0.0.0.0:5000）
-python app.py
+# 3. 配置项目（编辑 config.json）
+#    - comfyui_url: ComfyUI 服务器地址
+#    - workflow_source_dir: 实际工作流所在目录
+#    - service_port: Flask 监听端口（默认 5000）
+
+# 4. 启动服务
+python -m src.app   # Flask 将在 config 中的 port 上监听
 ```
 
-## API 接口
-| 方法 | 路径 | 功能 |
-|------|------|------|
-| POST | `/run` | 读取 workflow 模板，按请求体中的 `modifications` 动态更新节点字段并调用 ComfyUI。
+## API 接口概览
+| 方法 | 路径 | 功能描述 | 关键节点（示例 ID） |
+|------|------|----------|-------------------|
+| POST | `/api/text_to_video` | 文本生成视频 | 正向提示 254，负向提示 281，分辨率/帧数 250 |
+| POST | `/api/image_to_video` | 图片生成视频 | 图片输入 66，正向提示 239，负向提示 266，帧数 235 |
+| POST | `/api/digital_human` | 数字人生成 | 参考图片 66，提示 239/266，帧数 235 |
+| POST | `/api/image_to_action` | 图像反推动作迁移 | 姿势提取 360，提示 266 |
+| POST | `/api/head_tail_video` | 首尾帧图生视频 | 起始帧 66，结束帧 198，提示 7，帧数 21 |
+| POST | `/api/action_migration` | 动作迁移 | 源视频 339，目标角色 341，提示 266 |
 
-### 请求示例
-```json
-{
-  "workflow": "workflow_template.json",   // 模板文件名（相对 service 根目录）
-  "modifications": [
-    {"node": "PromptNode", "field": "prompt", "value": "sunset over mountains"},
-    {"node": "VideoSettings", "field": "duration", "value": 10},
-    {"node": "VideoSettings", "field": "fps", "value": 30}
-  ]
-}
+> **注**：节点 ID 基于当前工作流的实际分析，若工作流版本更改，只需在 `src/app.py` 中相应更新 ID 即可。
+
+## 请求示例
+```bash
+# 文生视频
+curl -X POST http://127.0.0.1:5000/api/text_to_video \
+     -H "Content-Type: application/json" \
+     -d '{"prompt":"sunset over mountains","negative_prompt":"blurry","width":1024,"height":576,"frame_count":24}'
 ```
 
-## 注意事项
-- **不修改 ComfyUI 源码**，仅读取 workflow JSON 并在内存中拼装后发送。
-- 若同一次请求多次调用，请求体中 `modifications` 只影响当前内存实例，不会写回磁盘。
-- 需要在 `config.json` 中配置 ComfyUI 的地址（如 `http://127.0.0.1:8188`）。
+其他接口的请求体请参考 `docs/api_endpoints.md` 中的详细说明。
 
----
-*通过本项目，你的视频助手 Agent 能以 RESTful 方式直接控制 ComfyUI 工作流，提升可用性与自动化程度。*
+## 常见问题
+- **修改了工作流后需要重新启动服务吗？**
+  - 是的，节点 ID 发生变化后需要重启服务以加载最新的 JSON。
+- **如何查看每个工作流的节点结构？**
+  - 项目提供了 `analyze_workflow.py`（已删除）供调试使用，或直接在本地打开对应的 JSON 文件。
+
+## 许可证
+MIT © 2024–2026 Hojay-Chen
